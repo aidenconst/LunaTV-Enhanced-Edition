@@ -10,6 +10,30 @@ import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
+/**
+ * 获取用户角色（与 wordlists 路由保持一致）
+ * @returns 'owner' | 'admin' | 'none'
+ */
+async function getUserRole(
+  username: string,
+): Promise<'owner' | 'admin' | 'none'> {
+  // 站长（owner）
+  if (username === process.env.USERNAME) {
+    return 'owner';
+  }
+
+  try {
+    const config = await getConfig();
+    const user = config.UserConfig.Users.find((u) => u.username === username);
+    if (user && user.role === 'admin' && !user.banned) {
+      return 'admin';
+    }
+    return 'none';
+  } catch {
+    return 'none';
+  }
+}
+
 export async function GET(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType === 'localstorage') {
@@ -49,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': 'no-store', // 管理员配置不缓存
+        'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
@@ -79,12 +103,14 @@ export async function POST(request: NextRequest) {
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const username = authInfo.username;
 
-  // 只有站长可以修改配置
-  if (username !== process.env.USERNAME) {
+  const username = authInfo.username;
+  const role = await getUserRole(username);
+
+  // 允许 owner 或 admin 修改配置
+  if (role !== 'owner' && role !== 'admin') {
     return NextResponse.json(
-      { error: '只有站长可以修改配置' },
+      { error: '只有站长或管理员可以修改配置' },
       { status: 403 },
     );
   }
@@ -98,11 +124,10 @@ export async function POST(request: NextRequest) {
     // 清除缓存，强制下次重新从数据库读取
     clearConfigCache();
 
-    // 🔥 刷新所有页面的缓存，使新配置立即生效（无需重启Docker）
+    // 刷新所有页面的缓存，使新配置立即生效（无需重启Docker）
     revalidatePath('/', 'layout');
 
-    // 🔥 添加 no-cache headers，防止 Docker 环境下 Next.js Router Cache 问题
-    // 参考：https://github.com/vercel/next.js/issues/61184
+    // 添加 no-cache headers，防止 Docker 环境下 Next.js Router Cache 问题
     return NextResponse.json(
       { success: true },
       {
