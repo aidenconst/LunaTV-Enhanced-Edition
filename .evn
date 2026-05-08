@@ -2,7 +2,7 @@
 USERNAME=aiden
 PASSWORD=aiden
 
-# 必填：存储配置
+# 必填：存储配置 
 NEXT_PUBLIC_STORAGE_TYPE=kvrocks
 KVROCKS_URL=redis://192.168.1.13:6668
 

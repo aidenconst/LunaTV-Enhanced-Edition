@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 仅站长可以修改配置
-  if (authInfo.username == process.env.USERNAME) {
+  if (authInfo.username !== process.env.USERNAME) {
     return NextResponse.json(
       { error: '只有站长可以修改分词配置' },
       { status: 403 },
