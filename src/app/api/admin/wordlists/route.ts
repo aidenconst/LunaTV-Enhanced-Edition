@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
-
+/**src\app\api\admin\wordlists\route.ts */
 import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -35,8 +36,32 @@ async function setWordList(key: string, list: string[]): Promise<void> {
 }
 
 /**
+ * 获取用户角色（参照 config/route.ts 的权限验证方式）
+ * @returns 'owner' | 'admin' | 'none'
+ */
+async function getUserRole(
+  username: string,
+): Promise<'owner' | 'admin' | 'none'> {
+  // 站长（owner）
+  if (username === process.env.USERNAME) {
+    return 'owner';
+  }
+
+  try {
+    const config = await getConfig();
+    const user = config.UserConfig.Users.find((u) => u.username === username);
+    if (user && user.role === 'admin' && !user.banned) {
+      return 'admin';
+    }
+    return 'none';
+  } catch {
+    return 'none';
+  }
+}
+
+/**
  * GET /api/admin/wordlists
- * 获取所有分词配置（需要管理员权限）
+ * 获取所有分词配置（需要 owner 或 admin 权限）
  */
 export async function GET(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -53,23 +78,9 @@ export async function GET(request: NextRequest) {
   }
 
   const username = authInfo.username;
+  const role = await getUserRole(username);
 
-  // 检查是否为管理员（owner 或 admin）
-  let isAdmin = false;
-  try {
-    const config = await db.getAdminConfig();
-    const user = config?.UserConfig?.Users?.find(
-      (u: any) => u.username === username,
-    );
-    if (user && (user.role === 'owner' || user.role === 'admin')) {
-      isAdmin = true;
-    }
-  } catch {
-    // 如果无法获取配置，回退到仅站长可访问（安全起见）
-    isAdmin = username === process.env.USERNAME;
-  }
-
-  if (!isAdmin) {
+  if (role !== 'owner' && role !== 'admin') {
     return NextResponse.json({ error: '无权限访问' }, { status: 403 });
   }
 
@@ -84,7 +95,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/admin/wordlists
- * 保存分词配置（仅站长可修改）
+ * 保存分词配置（需要 owner 或 admin 权限）
  */
 export async function POST(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -100,10 +111,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 仅站长可以修改配置
-  if (authInfo.username !== process.env.USERNAME) {
+  const username = authInfo.username;
+  const role = await getUserRole(username);
+
+  if (role !== 'owner' && role !== 'admin') {
     return NextResponse.json(
-      { error: '只有站长可以修改分词配置' },
+      { error: '只有站长或管理员可以修改分词配置' },
       { status: 403 },
     );
   }

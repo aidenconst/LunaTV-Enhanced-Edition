@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-
+/**src\app\api\admin\config\route.ts */
 import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 

@@ -524,10 +524,11 @@ export default function WordListConfig({ refreshConfig }: WordListConfigProps) {
     },
     [data],
   );
+  // 修改 saveData，内部不主动 toast，抛出错误
   const saveData = useCallback(
     async (newData: WordListData) => {
+      setSaving(true);
       try {
-        setSaving(true);
         const res = await fetch('/api/admin/wordlists', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -535,9 +536,10 @@ export default function WordListConfig({ refreshConfig }: WordListConfigProps) {
         });
         if (!res.ok) throw new Error('保存失败');
         if (refreshConfig) await refreshConfig();
+        // 成功时不 toast，由调用方决定是否提示
       } catch (err) {
         console.error(err);
-        alert('保存失败');
+        throw new Error('保存失败'); // 抛出错误，便于调用方捕获
       } finally {
         setSaving(false);
       }
@@ -594,16 +596,32 @@ export default function WordListConfig({ refreshConfig }: WordListConfigProps) {
     [data, newWords, saveData, isWordExistsInAnyList],
   );
 
+  // 优化后的 handleDelete
   const handleDelete = useCallback(
-    (type: keyof WordListData, word: string) => {
+    async (type: keyof WordListData, word: string) => {
+      const oldData = data; // 1️⃣ 备份旧数据
+      const newData = {
+        ...data,
+        [type]: data[type].filter((w) => w !== word), // 2️⃣ 生成新数据
+      };
+
+      // 3️⃣ 乐观更新 UI（非阻塞渲染）
       startTransition(() => {
-        const newData = {
-          ...data,
-          [type]: data[type].filter((w) => w !== word),
-        };
         setData(newData);
-        saveData(newData);
       });
+
+      try {
+        await saveData(newData); // 4️⃣ 等待保存完成
+        toast.success('删除成功', { description: word }); // ✅ 保存成功后再提示
+      } catch (error) {
+        // 5️⃣ 保存失败：恢复 UI，显示错误提示
+        startTransition(() => {
+          setData(oldData);
+        });
+        toast.error((error as Error).message || '删除失败', {
+          description: word,
+        });
+      }
     },
     [data, saveData],
   );
