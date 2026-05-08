@@ -21,22 +21,25 @@ export default function VideoCoverDisplay({
 }: VideoCoverDisplayProps) {
   return (
     <div className='hidden md:block md:col-span-1 md:order-first'>
-      <div className='pl-0 py-4 pr-6'>
-        <div className='group relative bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.02]'>
-          {(videoCover || bangumiDetails?.images?.large) ? (
+      <div className='pl-0 py-6 pr-10'>
+        <div className='group relative bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.01]'>
+          {videoCover || bangumiDetails?.images?.large ? (
             <>
               {/* 渐变光泽动画层 */}
               <div
                 className='absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-10'
                 style={{
-                  background: 'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.15) 45%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0.15) 55%, transparent 70%)',
+                  background:
+                    'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.15) 45%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0.15) 55%, transparent 70%)',
                   backgroundSize: '200% 100%',
                   animation: 'shimmer 2.5s ease-in-out infinite',
                 }}
               />
 
               <img
-                src={processImageUrl(bangumiDetails?.images?.large || videoCover)}
+                src={processImageUrl(
+                  bangumiDetails?.images?.large || videoCover,
+                )}
                 alt={videoTitle}
                 className='w-full h-full object-cover transition-transform duration-500 group-hover:scale-105'
               />
@@ -56,8 +59,12 @@ export default function VideoCoverDisplay({
                   rel='noopener noreferrer'
                   className='absolute top-3 left-3 z-20'
                 >
-                  <div className={`relative ${bangumiDetails ? 'bg-linear-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600' : 'bg-linear-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600'} text-white text-xs font-bold w-10 h-10 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 ease-out hover:scale-110 group/link`}>
-                    <div className={`absolute inset-0 ${bangumiDetails ? 'bg-pink-400' : 'bg-green-400'} rounded-full opacity-0 group-hover/link:opacity-30 blur transition-opacity duration-300`}></div>
+                  <div
+                    className={`relative ${bangumiDetails ? 'bg-linear-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600' : 'bg-linear-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600'} text-white text-xs font-bold w-10 h-10 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 ease-out hover:scale-110 group/link`}
+                  >
+                    <div
+                      className={`absolute inset-0 ${bangumiDetails ? 'bg-pink-400' : 'bg-green-400'} rounded-full opacity-0 group-hover/link:opacity-30 blur transition-opacity duration-300`}
+                    ></div>
                     <svg
                       width='18'
                       height='18'
@@ -77,9 +84,7 @@ export default function VideoCoverDisplay({
               )}
             </>
           ) : (
-            <span className='text-gray-600 dark:text-gray-400'>
-              封面图片
-            </span>
+            <span className='text-gray-600 dark:text-gray-400'>封面图片</span>
           )}
         </div>
       </div>

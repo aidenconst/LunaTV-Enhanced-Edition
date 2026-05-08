@@ -5,11 +5,13 @@
 import { ExternalLink, Layers, Server, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 
 import { ClientCache } from '@/lib/client-cache';
 import PageLayout from '@/components/PageLayout';
-import type { DoubanItem, SearchResult as GlobalSearchResult } from '@/lib/types';
+import type {
+  DoubanItem,
+  SearchResult as GlobalSearchResult,
+} from '@/lib/types';
 
 type Source = { key: string; name: string; api: string };
 type Category = { type_id: string | number; type_name: string };
@@ -25,75 +27,19 @@ type Item = {
 export default function SourceBrowserPage() {
   const router = useRouter();
 
+  const [sources, setSources] = useState<Source[]>([]);
+  const [loadingSources, setLoadingSources] = useState(true);
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const [activeSourceKey, setActiveSourceKey] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | number>('');
-
-  // 🔄 使用 TanStack Query 获取源列表
-  const {
-    data: sourcesData,
-    isLoading: loadingSources,
-    error: sourceError,
-  } = useQuery({
-    queryKey: ['sourceBrowser', 'sites'],
-    queryFn: async () => {
-      const res = await fetch('/api/source-browser/sites');
-      if (res.status === 401) {
-        throw new Error('登录状态已失效，请重新登录');
-      }
-      if (res.status === 403) {
-        throw new Error('当前账号暂无可用资源站点');
-      }
-      if (!res.ok) throw new Error('获取源失败');
-      const data = await res.json();
-      return data.sources || [];
-    },
-    staleTime: 30 * 60 * 1000, // 30 分钟 - 源列表很少变化
-    gcTime: 60 * 60 * 1000,     // 1 小时
-  });
-
-  const sources: Source[] = sourcesData || [];
   const activeSource = useMemo(
     () => sources.find((s) => s.key === activeSourceKey),
-    [sources, activeSourceKey]
+    [sources, activeSourceKey],
   );
 
-  // 🔄 使用 TanStack Query 获取分类列表
-  const {
-    data: categoriesData,
-    isLoading: loadingCategories,
-    error: categoryError,
-  } = useQuery({
-    queryKey: ['sourceBrowser', 'categories', activeSourceKey],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/source-browser/categories?source=${encodeURIComponent(activeSourceKey)}`
-      );
-      if (!res.ok) throw new Error('获取分类失败');
-      const data = await res.json();
-      return data.categories || [];
-    },
-    staleTime: 30 * 60 * 1000, // 30 分钟 - 分类列表很少变化
-    gcTime: 60 * 60 * 1000,     // 1 小时
-    enabled: !!activeSourceKey, // 只在有选中的源时才请求
-  });
-
-  const categories: Category[] = categoriesData || [];
-
-  // 当源列表加载完成时，自动选择第一个源
-  useEffect(() => {
-    if (sources.length > 0 && !activeSourceKey) {
-      setActiveSourceKey(sources[0].key);
-    }
-  }, [sources, activeSourceKey]);
-
-  // 当分类列表加载完成时，自动选择第一个分类
-  useEffect(() => {
-    if (categories.length > 0 && !activeCategory) {
-      setActiveCategory(categories[0].type_id);
-    } else if (categories.length === 0) {
-      setActiveCategory('');
-    }
-  }, [categories, activeCategory]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string | number>('');
 
   const [items, setItems] = useState<Item[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -123,13 +69,18 @@ export default function SourceBrowserPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<GlobalSearchResult | null>(null);
+  const [previewData, setPreviewData] = useState<GlobalSearchResult | null>(
+    null,
+  );
   const [previewItem, setPreviewItem] = useState<Item | null>(null);
   const [previewDouban, setPreviewDouban] = useState<DoubanItem | null>(null);
   const [previewDoubanLoading, setPreviewDoubanLoading] = useState(false);
   const [previewDoubanId, setPreviewDoubanId] = useState<number | null>(null);
   type BangumiTag = { name: string };
-  type BangumiInfoboxValue = string | { v: string } | Array<string | { v: string }>;
+  type BangumiInfoboxValue =
+    | string
+    | { v: string }
+    | Array<string | { v: string }>;
   type BangumiInfoboxEntry = { key: string; value: BangumiInfoboxValue };
   type BangumiSubject = {
     name?: string;
@@ -140,16 +91,72 @@ export default function SourceBrowserPage() {
     infobox?: BangumiInfoboxEntry[];
     summary?: string;
   };
-  const [previewBangumi, setPreviewBangumi] = useState<BangumiSubject | null>(null);
+  const [previewBangumi, setPreviewBangumi] = useState<BangumiSubject | null>(
+    null,
+  );
   const [previewBangumiLoading, setPreviewBangumiLoading] = useState(false);
-  const [previewSearchPick, setPreviewSearchPick] = useState<GlobalSearchResult | null>(null);
+  const [previewSearchPick, setPreviewSearchPick] =
+    useState<GlobalSearchResult | null>(null);
+
+  const fetchSources = useCallback(async () => {
+    setLoadingSources(true);
+    setSourceError(null);
+    try {
+      const res = await fetch('/api/source-browser/sites', {
+        cache: 'no-store',
+      });
+      if (res.status === 401) {
+        throw new Error('登录状态已失效，请重新登录');
+      }
+      if (res.status === 403) {
+        throw new Error('当前账号暂无可用资源站点');
+      }
+      if (!res.ok) throw new Error('获取源失败');
+      const data = await res.json();
+      const list: Source[] = data.sources || [];
+      setSources(list);
+      if (list.length > 0) {
+        setActiveSourceKey(list[0].key);
+      }
+    } catch (e: unknown) {
+      setSourceError(e instanceof Error ? e.message : '获取源失败');
+    } finally {
+      setLoadingSources(false);
+    }
+  }, []);
+
+  const fetchCategories = useCallback(async (sourceKey: string) => {
+    if (!sourceKey) return;
+    setLoadingCategories(true);
+    setCategoryError(null);
+    try {
+      const res = await fetch(
+        `/api/source-browser/categories?source=${encodeURIComponent(sourceKey)}`,
+      );
+      if (!res.ok) throw new Error('获取分类失败');
+      const data = await res.json();
+      const list: Category[] = data.categories || [];
+      setCategories(list);
+      if (list.length > 0) {
+        setActiveCategory(list[0].type_id);
+      } else {
+        setActiveCategory('');
+      }
+    } catch (e: unknown) {
+      setCategoryError(e instanceof Error ? e.message : '获取分类失败');
+      setCategories([]);
+      setActiveCategory('');
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, []);
 
   const fetchItems = useCallback(
     async (
       sourceKey: string,
       typeId: string | number,
       p = 1,
-      append = false
+      append = false,
     ) => {
       if (!sourceKey || !typeId) return;
       if (append) setLoadingMore(true);
@@ -158,8 +165,8 @@ export default function SourceBrowserPage() {
       try {
         const res = await fetch(
           `/api/source-browser/list?source=${encodeURIComponent(
-            sourceKey
-          )}&type_id=${encodeURIComponent(String(typeId))}&page=${p}`
+            sourceKey,
+          )}&type_id=${encodeURIComponent(String(typeId))}&page=${p}`,
         );
         if (!res.ok) throw new Error('获取列表失败');
         const data = (await res.json()) as {
@@ -172,7 +179,7 @@ export default function SourceBrowserPage() {
         setPageCount(Number(data.meta?.pagecount || 1));
         // 更新可选年份
         const years = Array.from(
-          new Set(list.map((i) => (i.year || '').trim()).filter(Boolean))
+          new Set(list.map((i) => (i.year || '').trim()).filter(Boolean)),
         );
         years.sort((a, b) => (parseInt(b) || 0) - (parseInt(a) || 0));
         setAvailableYears(years);
@@ -187,10 +194,15 @@ export default function SourceBrowserPage() {
         else setLoadingItems(false);
       }
     },
-    []
+    [],
   );
 
-  // 当分类变化时加载内容
+  useEffect(() => {
+    fetchSources();
+  }, [fetchSources]);
+  useEffect(() => {
+    if (activeSourceKey) fetchCategories(activeSourceKey);
+  }, [activeSourceKey, fetchCategories]);
   useEffect(() => {
     if (activeSourceKey && activeCategory && mode === 'category') {
       // 重置列表并加载第一页
@@ -210,8 +222,8 @@ export default function SourceBrowserPage() {
       try {
         const res = await fetch(
           `/api/source-browser/search?source=${encodeURIComponent(
-            sourceKey
-          )}&q=${encodeURIComponent(q)}&page=${p}`
+            sourceKey,
+          )}&q=${encodeURIComponent(q)}&page=${p}`,
         );
         if (!res.ok) throw new Error('搜索失败');
         const data = (await res.json()) as {
@@ -223,7 +235,7 @@ export default function SourceBrowserPage() {
         setPage(Number(data.meta?.page || p));
         setPageCount(Number(data.meta?.pagecount || 1));
         const years = Array.from(
-          new Set(list.map((i) => (i.year || '').trim()).filter(Boolean))
+          new Set(list.map((i) => (i.year || '').trim()).filter(Boolean)),
         );
         years.sort((a, b) => (parseInt(b) || 0) - (parseInt(a) || 0));
         setAvailableYears(years);
@@ -238,7 +250,7 @@ export default function SourceBrowserPage() {
         else setLoadingItems(false);
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -278,7 +290,7 @@ export default function SourceBrowserPage() {
           }
         }
       },
-      { root: null, rootMargin: '200px', threshold: 0 }
+      { root: null, rootMargin: '200px', threshold: 0 },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -360,7 +372,7 @@ export default function SourceBrowserPage() {
       arr = arr.filter(
         (i) =>
           (i.title || '').toLowerCase().includes(kw) ||
-          (i.remarks || '').toLowerCase().includes(kw)
+          (i.remarks || '').toLowerCase().includes(kw),
       );
     }
     // 年份筛选（精确匹配）
@@ -374,11 +386,11 @@ export default function SourceBrowserPage() {
         return arr.sort((a, b) => b.title.localeCompare(a.title));
       case 'year-asc':
         return arr.sort(
-          (a, b) => (parseInt(a.year) || 0) - (parseInt(b.year) || 0)
+          (a, b) => (parseInt(a.year) || 0) - (parseInt(b.year) || 0),
         );
       case 'year-desc':
         return arr.sort(
-          (a, b) => (parseInt(b.year) || 0) - (parseInt(a.year) || 0)
+          (a, b) => (parseInt(b.year) || 0) - (parseInt(a.year) || 0),
         );
       default:
         return arr; // 保持上游顺序
@@ -399,13 +411,14 @@ export default function SourceBrowserPage() {
 
       // 2) 缓存未命中，回源请求 /api/douban/details
       const fallback = await fetch(
-        `/api/douban/details?id=${encodeURIComponent(String(doubanId))}`
+        `/api/douban/details?id=${encodeURIComponent(String(doubanId))}`,
       );
       if (fallback.ok) {
         const dbData = (await fallback.json()) as
           | { code: number; message: string; data?: DoubanItem }
           | DoubanItem;
-        const normalized = (dbData as { data?: DoubanItem }).data || (dbData as DoubanItem);
+        const normalized =
+          (dbData as { data?: DoubanItem }).data || (dbData as DoubanItem);
         setPreviewDouban(normalized);
         // 3) 回写缓存（4小时）
         try {
@@ -430,7 +443,9 @@ export default function SourceBrowserPage() {
     try {
       setPreviewBangumiLoading(true);
       setPreviewBangumi(null);
-      const res = await fetch(`/api/proxy/bangumi?path=v0/subjects/${bangumiId}`);
+      const res = await fetch(
+        `/api/proxy/bangumi?path=v0/subjects/${bangumiId}`,
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           name?: string;
@@ -463,8 +478,8 @@ export default function SourceBrowserPage() {
     try {
       const res = await fetch(
         `/api/detail?source=${encodeURIComponent(
-          activeSourceKey
-        )}&id=${encodeURIComponent(item.id)}`
+          activeSourceKey,
+        )}&id=${encodeURIComponent(item.id)}`,
       );
       if (!res.ok) throw new Error('获取详情失败');
       const data = (await res.json()) as GlobalSearchResult;
@@ -476,15 +491,15 @@ export default function SourceBrowserPage() {
         const normalize = (s: string) =>
           (s || '').replace(/\s+/g, '').toLowerCase();
         const variants = Array.from(
-          new Set([item.title, (item.title || '').replace(/\s+/g, '')])
+          new Set([item.title, (item.title || '').replace(/\s+/g, '')]),
         ).filter(Boolean) as string[];
 
         for (const v of variants) {
           try {
             const res = await fetch(
               `/api/search/one?resourceId=${encodeURIComponent(
-                activeSourceKey
-              )}&q=${encodeURIComponent(v)}`
+                activeSourceKey,
+              )}&q=${encodeURIComponent(v)}`,
             );
             if (!res.ok) continue;
             const payload = (await res.json()) as {
@@ -500,10 +515,10 @@ export default function SourceBrowserPage() {
                   (r.year &&
                     String(r.year).toLowerCase() ===
                       String(item.year).toLowerCase())) &&
-                r.douban_id
+                r.douban_id,
             );
             const matchTitleOnly = list.find(
-              (r) => normalize(r.title) === tNorm && r.douban_id
+              (r) => normalize(r.title) === tNorm && r.douban_id,
             );
             const pick = matchStrict || matchTitleOnly || null;
             if (pick && pick.douban_id) {
@@ -548,7 +563,7 @@ export default function SourceBrowserPage() {
     <PageLayout activePath='/source-browser'>
       <div className='max-w-7xl mx-auto space-y-6 -mt-6 md:mt-0 pb-40 md:pb-safe-bottom'>
         {/* Header - 美化版 */}
-        <div className='relative'>
+        {/* <div className='relative'>
           <div className='absolute inset-0 bg-linear-to-r from-emerald-400/10 via-green-400/10 to-teal-400/10 rounded-2xl blur-3xl'></div>
           <div className='relative flex items-center gap-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50 shadow-xl'>
             <div className='relative w-16 h-16 rounded-2xl bg-linear-to-br from-emerald-500 via-green-500 to-teal-500 flex items-center justify-center shadow-lg group hover:scale-110 transition-transform duration-300'>
@@ -572,7 +587,7 @@ export default function SourceBrowserPage() {
               </div>
             )}
           </div>
-        </div>
+        </div> */}
 
         {/* Sources - 美化版 */}
         <div className='bg-linear-to-br from-white via-emerald-50/30 to-white dark:from-gray-800 dark:via-emerald-900/10 dark:to-gray-800 rounded-2xl shadow-lg border border-gray-200/80 dark:border-gray-700/80 backdrop-blur-sm'>
@@ -598,7 +613,7 @@ export default function SourceBrowserPage() {
             ) : sourceError ? (
               <div className='flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'>
                 <span className='text-sm text-red-600 dark:text-red-400'>
-                  {sourceError instanceof Error ? sourceError.message : '获取源失败'}
+                  {sourceError}
                 </span>
               </div>
             ) : sources.length === 0 ? (
@@ -694,7 +709,7 @@ export default function SourceBrowserPage() {
                         | 'title-asc'
                         | 'title-desc'
                         | 'year-asc'
-                        | 'year-desc'
+                        | 'year-desc',
                     )
                   }
                   className='sm:flex-1 sm:min-w-[120px] px-2 sm:px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs sm:text-sm'
@@ -756,7 +771,7 @@ export default function SourceBrowserPage() {
                     </div>
                   ) : categoryError ? (
                     <div className='flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400'>
-                      {categoryError instanceof Error ? categoryError.message : '获取分类失败'}
+                      {categoryError}
                     </div>
                   ) : categories.length === 0 ? (
                     <div className='text-center w-full py-6'>
@@ -838,7 +853,9 @@ export default function SourceBrowserPage() {
                               <div className='w-full h-full flex items-center justify-center text-gray-400 text-xs sm:text-sm'>
                                 <div className='text-center'>
                                   <Tv className='w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-1 sm:mb-2 opacity-50' />
-                                  <div className='text-[10px] sm:text-sm'>无封面</div>
+                                  <div className='text-[10px] sm:text-sm'>
+                                    无封面
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -922,8 +939,18 @@ export default function SourceBrowserPage() {
                   onClick={() => setPreviewOpen(false)}
                   title='关闭'
                 >
-                  <svg className='w-5 h-5' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
+                  <svg
+                    className='w-5 h-5'
+                    fill='none'
+                    stroke='currentColor'
+                    viewBox='0 0 24 24'
+                  >
+                    <path
+                      strokeLinecap='round'
+                      strokeLinejoin='round'
+                      strokeWidth={2}
+                      d='M6 18L18 6M6 6l12 12'
+                    />
                   </svg>
                 </button>
               </div>
@@ -936,8 +963,16 @@ export default function SourceBrowserPage() {
                   </div>
                 ) : previewError ? (
                   <div className='flex items-center gap-3 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400'>
-                    <svg className='w-5 h-5 shrink-0' fill='currentColor' viewBox='0 0 20 20'>
-                      <path fillRule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z' clipRule='evenodd' />
+                    <svg
+                      className='w-5 h-5 shrink-0'
+                      fill='currentColor'
+                      viewBox='0 0 20 20'
+                    >
+                      <path
+                        fillRule='evenodd'
+                        d='M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z'
+                        clipRule='evenodd'
+                      />
                     </svg>
                     {previewError}
                   </div>
@@ -1174,16 +1209,14 @@ export default function SourceBrowserPage() {
                             {Array.isArray(previewBangumi.tags) &&
                               previewBangumi.tags.length > 0 && (
                                 <div className='flex flex-wrap gap-2 text-xs'>
-                                  {previewBangumi.tags
-                                    .slice(0, 10)
-                                    .map((t) => (
-                                      <span
-                                        key={t.name}
-                                        className='px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700'
-                                      >
-                                        {t.name}
-                                      </span>
-                                    ))}
+                                  {previewBangumi.tags.slice(0, 10).map((t) => (
+                                    <span
+                                      key={t.name}
+                                      className='px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700'
+                                    >
+                                      {t.name}
+                                    </span>
+                                  ))}
                                 </div>
                               )}
                             {Array.isArray(previewBangumi.infobox) &&
@@ -1197,12 +1230,12 @@ export default function SourceBrowserPage() {
                                         {Array.isArray(info.value)
                                           ? info.value
                                               .map((v) =>
-                                                typeof v === 'string' ? v : v.v
+                                                typeof v === 'string' ? v : v.v,
                                               )
                                               .join('、')
                                           : typeof info.value === 'string'
-                                          ? info.value
-                                          : info.value.v}
+                                            ? info.value
+                                            : info.value.v}
                                       </div>
                                     ))}
                                 </div>
@@ -1243,7 +1276,11 @@ export default function SourceBrowserPage() {
                     className='group relative inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 rounded-xl bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-300 hover:scale-105'
                   >
                     <div className='absolute inset-0 rounded-xl bg-linear-to-r from-blue-400 to-indigo-400 blur-lg opacity-0 group-hover:opacity-50 transition-opacity -z-10'></div>
-                    <svg className='w-4 h-4' fill='currentColor' viewBox='0 0 20 20'>
+                    <svg
+                      className='w-4 h-4'
+                      fill='currentColor'
+                      viewBox='0 0 20 20'
+                    >
                       <path d='M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z' />
                     </svg>
                     立即播放

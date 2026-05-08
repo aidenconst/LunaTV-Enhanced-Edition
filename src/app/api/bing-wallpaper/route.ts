@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// 使用 10 分钟缓存，平衡随机性和性能
-export const revalidate = 600; // 10 分钟
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -14,8 +13,8 @@ export async function GET() {
       const response = await fetch(
         `https://www.bing.com/HPImageArchive.aspx?format=js&idx=${randomIdx}&n=1&mkt=zh-CN`,
         {
-          // 使用 Next.js 缓存，10 分钟重新验证
-          next: { revalidate: 600 }
+          // 不缓存，每次都随机
+          cache: 'no-store'
         }
       );
 
@@ -33,12 +32,6 @@ export async function GET() {
           copyright: data.images[0].copyright,
           title: data.images[0].title,
           source: 'bing',
-        }, {
-          headers: {
-            'Cache-Control': 'public, max-age=600, s-maxage=600',
-            'CDN-Cache-Control': 'public, s-maxage=600',
-            'Vercel-CDN-Cache-Control': 'public, s-maxage=600',
-          },
         });
       }
     }
@@ -52,12 +45,6 @@ export async function GET() {
       copyright: 'Lorem Picsum - Free random images',
       title: 'Random Photo',
       source: 'picsum',
-    }, {
-      headers: {
-        'Cache-Control': 'public, max-age=600, s-maxage=600',
-        'CDN-Cache-Control': 'public, s-maxage=600',
-        'Vercel-CDN-Cache-Control': 'public, s-maxage=600',
-      },
     });
   } catch (error) {
     console.error('Error fetching wallpaper:', error);
@@ -69,12 +56,6 @@ export async function GET() {
       copyright: 'Lorem Picsum - Free random images',
       title: 'Random Photo',
       source: 'picsum',
-    }, {
-      headers: {
-        'Cache-Control': 'public, max-age=600, s-maxage=600',
-        'CDN-Cache-Control': 'public, s-maxage=600',
-        'Vercel-CDN-Cache-Control': 'public, s-maxage=600',
-      },
     });
   }
 }

@@ -16,7 +16,7 @@
  */
 
 import { useQueries } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   BangumiCalendarData,
   GetBangumiCalendarData,
@@ -94,63 +94,41 @@ export interface HomePageQueriesResult {
  * }
  * ```
  */
-export function useHomePageQueries(config?: HomePageConfig): HomePageQueriesResult {
-  // 默认所有模块都启用
-  const enabledConfig = useMemo(() => ({
-    showHotMovies: config?.showHotMovies ?? true,
-    showHotTvShows: config?.showHotTvShows ?? true,
-    showHotVariety: config?.showHotVariety ?? true,
-    showNewAnime: config?.showNewAnime ?? true,
-    showHotShortDramas: config?.showHotShortDramas ?? true,
-  }), [config]);
+/**
+ * 首页数据查询 Hook（优化版，避免无限重渲染）
+ *
+ * 优化点：
+ * 1. 使用 `useRef` 缓存上一次聚合结果，当数据内容未变时返回相同的对象引用
+ * 2. `enabledConfig` 依赖具体的布尔值，防止因 config 对象引用变化而重新计算
+ * 3. `combine` 函数使用 `useCallback` 稳定化
+ *
+ * @param config - 首页模块配置，控制哪些模块需要加载数据
+ */
+export function useHomePageQueries(
+  config?: HomePageConfig,
+): HomePageQueriesResult {
+  // 将 config 对象中的布尔值单独提取，避免对象引用变化导致 enabled 不稳定
+  const enabledConfig = useMemo(
+    () => ({
+      showHotMovies: config?.showHotMovies ?? true,
+      showHotTvShows: config?.showHotTvShows ?? true,
+      showHotVariety: config?.showHotVariety ?? true,
+      showNewAnime: config?.showNewAnime ?? true,
+      showHotShortDramas: config?.showHotShortDramas ?? true,
+    }),
+    [
+      config?.showHotMovies,
+      config?.showHotTvShows,
+      config?.showHotVariety,
+      config?.showNewAnime,
+      config?.showHotShortDramas,
+    ],
+  );
 
-  // 使用 useCallback 缓存 combine 函数，避免每次渲染都重新创建
-  const combine = useCallback((results: any[]) => {
-    const [
-      moviesResult,
-      tvResult,
-      varietyResult,
-      animeResult,
-      shortDramasResult,
-      bangumiResult,
-    ] = results;
-
-    // 聚合数据
-    const data: HomePageData = {
-      hotMovies:
-        moviesResult.data?.code === 200 ? moviesResult.data.list : [],
-      hotTvShows: tvResult.data?.code === 200 ? tvResult.data.list : [],
-      hotVarietyShows:
-        varietyResult.data?.code === 200 ? varietyResult.data.list : [],
-      hotAnime: animeResult.data?.code === 200 ? animeResult.data.list : [],
-      hotShortDramas: shortDramasResult.data || [],
-      bangumiCalendar: bangumiResult.data || [],
-    };
-
-    // 聚合加载状态
-    const isLoading = results.some((r) => r.isLoading);
-    const isFetching = results.some((r) => r.isFetching);
-
-    // 聚合错误
-    const errors = results
-      .filter((r) => r.error)
-      .map((r) => r.error as Error);
-    const hasError = errors.length > 0;
-
-    // 聚合 refetch 函数
-    const refetch = () => {
-      results.forEach((r) => r.refetch());
-    };
-
-    return {
-      data,
-      isLoading,
-      isFetching,
-      errors,
-      hasError,
-      refetch,
-    };
-  }, []);
+  // 缓存上一次的数据，避免引用变化
+  const cachedDataRef = useRef<HomePageData | undefined>(undefined);
+  const cachedErrorsRef = useRef<Error[]>([]);
+  const cachedRefetchRef = useRef<() => void>(() => {});
 
   // 使用 useQueries 并行获取所有数据
   const result = useQueries({
@@ -164,10 +142,10 @@ export function useHomePageQueries(config?: HomePageConfig): HomePageQueriesResu
             category: '热门',
             type: '全部',
           }),
-        staleTime: 2 * 60 * 1000, // 2分钟 - 热门内容更新较频繁
-        gcTime: 10 * 60 * 1000, // 10分钟
-        retry: 2, // 失败重试2次
-        enabled: enabledConfig.showHotMovies, // 🔥 根据配置决定是否执行查询
+        staleTime: 2 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+        retry: 2,
+        enabled: enabledConfig.showHotMovies,
       },
       // 2. 热门电视剧
       {
@@ -177,7 +155,7 @@ export function useHomePageQueries(config?: HomePageConfig): HomePageQueriesResu
         staleTime: 2 * 60 * 1000,
         gcTime: 10 * 60 * 1000,
         retry: 2,
-        enabled: enabledConfig.showHotTvShows, // 🔥 根据配置决定是否执行查询
+        enabled: enabledConfig.showHotTvShows,
       },
       // 3. 热门综艺
       {
@@ -187,7 +165,7 @@ export function useHomePageQueries(config?: HomePageConfig): HomePageQueriesResu
         staleTime: 2 * 60 * 1000,
         gcTime: 10 * 60 * 1000,
         retry: 2,
-        enabled: enabledConfig.showHotVariety, // 🔥 根据配置决定是否执行查询
+        enabled: enabledConfig.showHotVariety,
       },
       // 4. 热门动漫
       {
@@ -201,28 +179,83 @@ export function useHomePageQueries(config?: HomePageConfig): HomePageQueriesResu
         staleTime: 2 * 60 * 1000,
         gcTime: 10 * 60 * 1000,
         retry: 2,
-        enabled: enabledConfig.showNewAnime, // 🔥 根据配置决定是否执行查询
+        enabled: enabledConfig.showNewAnime,
       },
       // 5. 短剧推荐
       {
         queryKey: ['shortdramas', 'recommended', 8],
         queryFn: () => getRecommendedShortDramas(undefined, 8),
-        staleTime: 5 * 60 * 1000, // 5分钟 - 短剧推荐更新较慢
-        gcTime: 15 * 60 * 1000, // 15分钟
+        staleTime: 5 * 60 * 1000,
+        gcTime: 15 * 60 * 1000,
         retry: 2,
-        enabled: enabledConfig.showHotShortDramas, // 🔥 根据配置决定是否执行查询
+        enabled: enabledConfig.showHotShortDramas,
       },
-      // 6. 番剧日历 - 总是启用，因为新番放送模块需要它
+      // 6. 番剧日历
       {
         queryKey: ['bangumi', 'calendar'],
         queryFn: () => GetBangumiCalendarData(),
-        staleTime: 10 * 60 * 1000, // 10分钟 - 每日更新，可以缓存更久
-        gcTime: 30 * 60 * 1000, // 30分钟
+        staleTime: 10 * 60 * 1000,
+        gcTime: 30 * 60 * 1000,
         retry: 2,
-        enabled: enabledConfig.showNewAnime, // 🔥 番剧日历跟随新番放送模块
+        enabled: enabledConfig.showNewAnime,
       },
     ],
-    combine,
+    combine: useCallback((results: any[]) => {
+      // 从各个结果中提取数据
+      const newData: HomePageData = {
+        hotMovies: results[0].data?.code === 200 ? results[0].data.list : [],
+        hotTvShows: results[1].data?.code === 200 ? results[1].data.list : [],
+        hotVarietyShows:
+          results[2].data?.code === 200 ? results[2].data.list : [],
+        hotAnime: results[3].data?.code === 200 ? results[3].data.list : [],
+        hotShortDramas: results[4].data || [],
+        bangumiCalendar: results[5].data || [],
+      };
+
+      const newErrors = results
+        .filter((r) => r.error)
+        .map((r) => r.error as Error);
+      const newIsLoading = results.some((r) => r.isLoading);
+      const newIsFetching = results.some((r) => r.isFetching);
+      const newRefetch = () => results.forEach((r) => r.refetch());
+
+      // 检查数据是否真正发生了变化（浅比较关键数组的长度）
+      const cached = cachedDataRef.current;
+      let dataUnchanged =
+        !!cached &&
+        newData.hotMovies.length === cached.hotMovies.length &&
+        newData.hotTvShows.length === cached.hotTvShows.length &&
+        newData.hotVarietyShows.length === cached.hotVarietyShows.length &&
+        newData.hotAnime.length === cached.hotAnime.length &&
+        newData.hotShortDramas.length === cached.hotShortDramas.length &&
+        newData.bangumiCalendar.length === cached.bangumiCalendar.length;
+
+      // 如果数据未变，返回缓存的引用（避免重新渲染）
+      if (dataUnchanged) {
+        return {
+          data: cached,
+          isLoading: newIsLoading,
+          isFetching: newIsFetching,
+          errors: cachedErrorsRef.current,
+          hasError: cachedErrorsRef.current.length > 0,
+          refetch: cachedRefetchRef.current,
+        };
+      }
+
+      // 数据有变化，更新缓存并返回新对象
+      cachedDataRef.current = newData;
+      cachedErrorsRef.current = newErrors;
+      cachedRefetchRef.current = newRefetch;
+
+      return {
+        data: newData,
+        isLoading: newIsLoading,
+        isFetching: newIsFetching,
+        errors: newErrors,
+        hasError: newErrors.length > 0,
+        refetch: newRefetch,
+      };
+    }, []), // combine 函数不依赖任何外部变量，使用空依赖数组稳定化
   });
 
   return result;
