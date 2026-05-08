@@ -10,6 +10,50 @@ interface WordRecommendationProps {
 
 type TabType = 'actor' | 'hot' | 'sensitive';
 
+// 计算聚合统计数据（与搜索页保持一致）
+function computeGroupStats(group: SearchResult[]) {
+  const episodes = (() => {
+    const countMap = new Map<number, number>();
+    group.forEach((g) => {
+      const len = g.episodes?.length || 0;
+      if (len > 0) countMap.set(len, (countMap.get(len) || 0) + 1);
+    });
+    let max = 0;
+    let res = 0;
+    countMap.forEach((v, k) => {
+      if (v > max) {
+        max = v;
+        res = k;
+      }
+    });
+    return res;
+  })();
+
+  const source_names = Array.from(
+    new Set(group.map((g) => g.source_name).filter(Boolean)),
+  ) as string[];
+
+  const douban_id = (() => {
+    const countMap = new Map<number, number>();
+    group.forEach((g) => {
+      if (g.douban_id && g.douban_id > 0) {
+        countMap.set(g.douban_id, (countMap.get(g.douban_id) || 0) + 1);
+      }
+    });
+    let max = 0;
+    let res: number | undefined;
+    countMap.forEach((v, k) => {
+      if (v > max) {
+        max = v;
+        res = k;
+      }
+    });
+    return res;
+  })();
+
+  return { episodes, source_names, douban_id };
+}
+
 export default function WordRecommendationSection({
   title,
 }: WordRecommendationProps) {
@@ -21,25 +65,54 @@ export default function WordRecommendationSection({
     sensitive: string[];
   }>({ actor: [], hot: [], sensitive: [] });
   const [selectedWord, setSelectedWord] = useState<string>('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [rawResults, setRawResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
-  // 搜索关键词（最多返回 21 条）
+  // 聚合后的结果（按标题+年份+类型分组）
+  const aggregatedResults = (() => {
+    const map = new Map<string, SearchResult[]>();
+    const keyOrder: string[] = [];
+
+    rawResults.forEach((item) => {
+      const key = `${item.title.replaceAll(' ', '')}-${item.year || 'unknown'}-${
+        item.episodes.length === 1 ? 'movie' : 'tv'
+      }`;
+      const arr = map.get(key) || [];
+      if (arr.length === 0) keyOrder.push(key);
+      arr.push(item);
+      map.set(key, arr);
+    });
+
+    return keyOrder.map(
+      (key) => [key, map.get(key)!] as [string, SearchResult[]],
+    );
+  })();
+
+  // 搜索关键词（最多返回 21 条，但聚合后可能少于分组数）
   const search = async (keyword: string) => {
     if (!keyword) return;
     setSearching(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(keyword)}`);
+      // 添加随机时间戳防止浏览器 HTTP 缓存
+      const url = `/api/search?q=${encodeURIComponent(keyword)}&_t=${Date.now()}`;
+      const res = await fetch(url, {
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache, no-store',
+          Pragma: 'no-cache',
+        },
+      });
       const data = await res.json();
       const results = Array.isArray(data.results) ? data.results : [];
-      setSearchResults(results.slice(0, 21)); // 限制 21 条
+      // 限制原始结果数量（最多 21 条原始结果，聚合后会减少）
+      setRawResults(results.slice(0, 21));
     } catch (error) {
       console.error('搜索失败:', error);
-      setSearchResults([]);
+      setRawResults([]);
     } finally {
       setSearching(false);
     }
@@ -62,7 +135,6 @@ export default function WordRecommendationSection({
         const sensitive = data.sensitive || [];
         setWordData({ actor, hot, sensitive });
 
-        // 确定有词的第一个分类（优先级：演员 -> 热门 -> 敏感）
         let firstTab: TabType = 'actor';
         let firstWord = '';
         if (actor.length > 0) {
@@ -81,8 +153,7 @@ export default function WordRecommendationSection({
           setSelectedWord(firstWord);
           await search(firstWord);
         } else {
-          // 所有分类均无词语
-          setSearchResults([]);
+          setRawResults([]);
           setSelectedWord('');
         }
       }
@@ -115,7 +186,7 @@ export default function WordRecommendationSection({
     };
   }, [hasLoaded, fetchWordSegments]);
 
-  // 未加载时渲染占位符，不占用视觉空间
+  // 未加载时渲染占位符
   if (!hasLoaded) {
     return <div ref={containerRef} />;
   }
@@ -172,7 +243,7 @@ export default function WordRecommendationSection({
             <button
               key={key}
               onClick={() => {
-                if (!hasWords) return; // 无词时不切换选项卡
+                if (!hasWords) return;
                 if (activeTab === tabKey) return;
                 setActiveTab(tabKey);
                 const firstWord = words[0];
@@ -220,38 +291,48 @@ export default function WordRecommendationSection({
         );
       })()}
 
-      {/* 搜索结果展示 */}
+      {/* 搜索结果展示 - 聚合模式 */}
       {searching && (
         <div className='flex justify-center py-8'>
           <div className='animate-spin rounded-full h-8 w-8 border-2 border-green-500 border-t-transparent' />
         </div>
       )}
-      {!searching && searchResults.length > 0 && (
+      {!searching && aggregatedResults.length > 0 && (
         <div className='grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
-          {searchResults.map((item, idx) => (
-            <div key={`${item.source}-${item.id}-${idx}`} className='w-full'>
-              <VideoCard
-                id={item.id}
-                title={item.title}
-                poster={item.poster}
-                episodes={item.episodes.length}
-                source={item.source}
-                source_name={item.source_name}
-                douban_id={item.douban_id}
-                year={item.year}
-                from='search'
-                type={item.episodes.length === 1 ? 'movie' : 'tv'}
-                remarks={item.remarks}
-              />
-            </div>
-          ))}
+          {aggregatedResults.map(([mapKey, group]) => {
+            const title = group[0]?.title || '';
+            const poster = group[0]?.poster || '';
+            const year = group[0]?.year || 'unknown';
+            const { episodes, source_names, douban_id } =
+              computeGroupStats(group);
+            const type = episodes === 1 ? 'movie' : 'tv';
+            return (
+              <div key={mapKey} className='w-full'>
+                <VideoCard
+                  from='search'
+                  isAggregate={true}
+                  title={title}
+                  poster={poster}
+                  year={year}
+                  episodes={episodes}
+                  source_names={source_names}
+                  douban_id={douban_id}
+                  query={selectedWord !== title ? selectedWord : ''}
+                  type={type}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
-      {!searching && selectedWord && searchResults.length === 0 && (
-        <div className='text-center py-8 text-gray-500 dark:text-gray-400'>
-          未找到与 “{selectedWord}” 相关的内容
-        </div>
-      )}
+      {!searching &&
+        selectedWord &&
+        aggregatedResults.length === 0 &&
+        rawResults.length === 0 && (
+          <div className='text-center py-8 text-gray-500 dark:text-gray-400'>
+            未找到与 “{selectedWord}” 相关的内容
+          </div>
+        )}
       {loading && (
         <div className='text-center py-8 text-gray-500 dark:text-gray-400'>
           正在分析标题...

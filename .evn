@@ -1,6 +1,6 @@
  # 必填：管理员账号
-USERNAME=xxm
-PASSWORD=xxm
+USERNAME=aiden
+PASSWORD=aiden
 
 # 必填：存储配置
 NEXT_PUBLIC_STORAGE_TYPE=kvrocks

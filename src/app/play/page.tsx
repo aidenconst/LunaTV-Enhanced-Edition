@@ -5076,7 +5076,11 @@ function PlayPageClient() {
               );
 
               hls.on(Hls.Events.ERROR, function (event: any, data: any) {
-                console.error('HLS Error:', event, data);
+                // 只记录真实错误详情（避免误导）
+                if (data?.details) {
+                  console.warn('HLS Error details:', data.details, data);
+                }
+                //console.error('HLS Error:', event, data);
                 // 🔧 新增：处理缓冲区空洞错误（非致命，但会打印错误）
                 if (data.details === 'bufferStalledError') {
                   console.warn('检测到缓冲区空洞，尝试恢复媒体...');
