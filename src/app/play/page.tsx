@@ -2937,7 +2937,7 @@ function PlayPageClient() {
     const customCode = customAdFilterCodeRef.current;
     if (customCode && customCode.trim()) {
       try {
-        // 移除 TypeScript 类型注解,转换为纯 JavaScript
+        // 移除 TypeScript 类型注解（如果有）
         const jsCode = customCode
           .replace(
             /(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*([,)])/g,
@@ -2948,23 +2948,22 @@ function PlayPageClient() {
             ') {',
           )
           .replace(
-            /(const|let|var)\s+(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*=/g,
+            /(const|let|var)\s+(\w+)\s*:\s*(string|number|boolean)\s*=/g,
             '$1 $2 =',
           );
 
-        // 创建并执行自定义函数
-        // eslint-disable-next-line no-new-func
-        const customFunction = new Function(
-          'type',
-          'm3u8Content',
-          jsCode + '\nreturn filterAdsFromM3U8(type, m3u8Content);',
-        );
-        const result = customFunction(currentSourceRef.current, m3u8Content);
-        console.log('✅ 使用自定义去广告代码');
-        return result;
+        // 🔥 关键修改：将自定义代码包装成函数，直接调用
+        // 假设自定义代码是一个函数定义，例如 "function filterAdsFromM3U8(m3u8Content) { ... }"
+        const wrappedFunc = new Function('return (' + jsCode + ')')();
+        if (typeof wrappedFunc === 'function') {
+          const result = wrappedFunc(m3u8Content);
+          if (typeof result === 'string') {
+            console.log('✅ 自定义去广告代码执行成功');
+            return result;
+          }
+        }
       } catch (err) {
-        console.error('执行自定义去广告代码失败,降级使用默认规则:', err);
-        // 继续使用默认规则
+        console.error('❌ 执行自定义去广告代码失败:', err);
       }
     }
 
